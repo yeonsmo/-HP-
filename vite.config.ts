@@ -11,4 +11,10 @@ export default defineConfig({
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 2000,
   },
+  // 개발 시: 프런트엔드(/api 호출)를 백엔드 서버(기본 3000)로 프록시한다.
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3000',
+    },
+  },
 });

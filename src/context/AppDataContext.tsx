@@ -18,9 +18,7 @@ import {
 import { currentMonthKey } from '../lib/format/month';
 import {
   deleteVariableRecord as dbDeleteVar,
-  getAllMonths,
-  getAllVariableRecords,
-  getLastMonth,
+  getState,
   putMonth,
   putVariableRecord as dbPutVar,
   setLastMonth,
@@ -28,6 +26,7 @@ import {
 
 interface AppDataValue {
   ready: boolean;
+  loadError: string | null;
   selectedMonth: MonthKey;
   basis: Basis;
   monthData: MonthData;
@@ -50,6 +49,7 @@ const SAVE_DEBOUNCE_MS = 400;
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonthState] = useState<MonthKey>(currentMonthKey());
   const [basis, setBasis] = useState<Basis>('cumulative');
   const [months, setMonths] = useState<Record<MonthKey, MonthData>>({});
@@ -80,20 +80,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   );
 
   const loadAll = useCallback(async () => {
-    const [allMonthsArr, allVars, last] = await Promise.all([
-      getAllMonths(),
-      getAllVariableRecords(),
-      getLastMonth(),
-    ]);
+    const state = await getState();
     const map: Record<MonthKey, MonthData> = {};
-    for (const m of allMonthsArr) map[m.month] = m;
+    for (const m of state.months) map[m.month] = m;
     setMonths(map);
-    setVariableRecords(allVars);
-    if (last) setSelectedMonthState(last);
+    setVariableRecords(state.variableRecords);
+    if (state.lastMonth) setSelectedMonthState(state.lastMonth);
   }, []);
 
   useEffect(() => {
-    void loadAll().finally(() => setReady(true));
+    loadAll()
+      .then(() => setLoadError(null))
+      .catch(() => setLoadError('서버에 연결할 수 없습니다. 서버(npm run server)가 실행 중인지, NAS 경로가 연결되어 있는지 확인하세요.'))
+      .finally(() => setReady(true));
     // 페이지 종료 전 보류 중인 저장 flush
     const onBeforeUnload = () => flushSaves();
     window.addEventListener('beforeunload', onBeforeUnload);
@@ -148,6 +147,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const value: AppDataValue = {
     ready,
+    loadError,
     selectedMonth,
     basis,
     monthData,

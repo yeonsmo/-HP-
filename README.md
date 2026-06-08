@@ -1,13 +1,13 @@
 # 수압시험 BEP 관리 (HP Engineering)
 
-폐쇄망(air-gapped) 보안 서버 전용 손익분기점(BEP) 관리 웹앱.
-외부 네트워크 통신이 전혀 없는 순수 클라이언트 사이드 단일 페이지 애플리케이션입니다.
+폐쇄망(air-gapped) 보안 환경 전용 손익분기점(BEP) 관리 웹앱.
+외부 네트워크 통신이 전혀 없습니다(사내 NAS와 로컬 서버만 사용).
 
-- 기술 스택: React + TypeScript + Vite, 차트 recharts
-- 저장소: 브라우저 IndexedDB (외부 저장소 미사용)
+- 기술 스택: 프런트엔드 React + TypeScript + Vite(차트 recharts), 백엔드 Node + Express
+- 저장소: 사내 NAS의 지정 폴더에 보관되는 SQLite 파일 (경로는 `.env` 의 `DB_PATH`)
+- 구조: 브라우저 → 로컬 중계 서버 1개 → NAS의 `.db` 파일
 - 백업/복원: JSON 파일 내보내기/불러오기
 - 발행: 브라우저 인쇄 기반(window.print) PDF, 한글 인쇄 스타일 별도
-- 배포: 빌드 결과물(`dist`)을 nginx 정적 서빙
 
 ## 핵심 원칙
 
@@ -16,14 +16,31 @@
 - 급여·보험료 등은 직접 입력값을 계산 기준으로 하며, 자동 계산값은 보조 참고용으로만 표시합니다.
 - 손익과 BEP 판정은 항상 월 단위로 고정합니다.
 
+## 설정 (.env)
+
+처음 한 번 `.env` 파일을 만듭니다(`.env.example` 복사). NAS의 SQLite 파일 경로를 지정합니다.
+
+```
+DB_PATH=/mnt/nas/bep/bep.db      # NAS 폴더 경로 (윈도우 예: Z:\bep\bep.db)
+PORT=3000                        # 접속 포트
+```
+
+## 실행 (실사용 - 혼자 사용)
+
+```bash
+npm install        # 처음 한 번 (인터넷 필요)
+npm run build      # 처음 한 번 / 코드 변경 시 (이후 인터넷 불필요)
+npm run server     # 서버 실행 → 브라우저에서 http://localhost:3000 접속
+```
+
+`npm start` 는 빌드와 서버 실행을 한 번에 합니다.
+
 ## 개발
 
 ```bash
-npm install
-npm run dev      # 개발 서버
-npm run test     # 계산 로직 단위 테스트 (vitest)
-npm run build    # 타입체크 + 프로덕션 빌드 → dist/
-npm run preview  # 빌드 결과 미리보기
+npm run test         # 계산 로직 단위 테스트 (vitest)
+npm run dev:server   # 백엔드 서버(자동 재시작) — 터미널 1
+npm run dev          # 프런트엔드 개발 서버(/api 는 백엔드로 프록시) — 터미널 2
 ```
 
 ## 폰트 (Pretendard)
@@ -32,20 +49,14 @@ npm run preview  # 빌드 결과 미리보기
 파일명과 배치 방법은 `public/fonts/README.md` 를 참고하세요. 파일이 없어도 시스템
 한글 폰트로 폴백되어 화면과 인쇄 모두 정상 동작합니다.
 
-## nginx 배포
+## 데이터 저장과 안전성
 
-`npm run build` 후 `dist/` 를 정적 서빙합니다. 자산은 상대 경로(`./assets/...`)로
-참조되어 하위 경로 배포도 가능합니다. 폰트는 `/fonts/...` 절대 경로로 참조되므로
-하위 경로 배포 시에는 서버 루트의 `/fonts/` 에 woff2 를 두거나 루트 경로로 서빙하세요.
-
-```nginx
-server {
-  listen 80;
-  root /var/www/bep/dist;
-  index index.html;
-  location / { try_files $uri $uri/ /index.html; }
-}
-```
+- 입력 데이터는 모두 NAS의 `DB_PATH` SQLite 파일에 저장됩니다(브라우저에 보관하지 않음).
+- 백업은 이 `.db` 파일을 복사하거나, 화면의 JSON 백업 기능을 사용합니다.
+- 네트워크 공유(NAS) 안전을 위해 WAL 저널을 쓰지 않고(`journal_mode=DELETE`),
+  데이터 무결성을 우선합니다(`synchronous=FULL`).
+- 본 앱은 단일 서버 프로세스만 NAS 파일을 다루는 1인 사용 전제로 구성되어 있습니다.
+  여러 PC에서 같은 `.db` 파일을 동시에 직접 열면 파일이 손상될 수 있으므로 권장하지 않습니다.
 
 ## 계산 개요
 
@@ -59,7 +70,8 @@ server {
 
 ## 검증 체크리스트
 
-1. 오프라인(네트워크 차단)에서 `dist` 정상 동작.
-2. 균일 구성 데이터에서 방식 A·B BEP 일치, 치우친 구성에서 괴리(단위 테스트 포함).
-3. JSON 백업 후 복원 시 데이터 동일 유지.
-4. PDF 발행 시 한글·숫자 정상 출력.
+1. 오프라인(외부 네트워크 차단)에서 서버 실행 및 NAS 파일 읽기/쓰기 정상 동작.
+2. 서버 재시작 후에도 NAS의 `.db` 파일에 데이터가 유지됨.
+3. 균일 구성 데이터에서 방식 A·B BEP 일치, 치우친 구성에서 괴리(단위 테스트 포함).
+4. JSON 백업 후 복원 시 데이터 동일 유지.
+5. PDF 발행 시 한글·숫자 정상 출력.

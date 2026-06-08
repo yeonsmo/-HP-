@@ -2,22 +2,19 @@ import type { BackupFile } from '../../types/db';
 import type { MonthData, VariableRecord } from '../../types/domain';
 import { isValidMonth } from '../format/month';
 import { APP_VERSION, DB_VERSION } from './schema';
-import { getAllMonths, getAllVariableRecords, replaceAll } from './database';
+import { getState, replaceAll } from './database';
 
 // JSON 백업/복원. 외부 저장소를 사용하지 않고 파일로 내보내고 불러온다.
 
 /** 전체 데이터를 백업 객체로 직렬화 */
 export async function exportAll(): Promise<BackupFile> {
-  const [months, variableRecords] = await Promise.all([
-    getAllMonths(),
-    getAllVariableRecords(),
-  ]);
+  const state = await getState();
   return {
     schemaVersion: DB_VERSION,
     appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
-    months,
-    variableRecords,
+    months: state.months,
+    variableRecords: state.variableRecords,
   };
 }
 

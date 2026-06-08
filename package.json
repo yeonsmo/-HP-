@@ -3,16 +3,20 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "수압시험 BEP(손익분기점) 관리 웹앱 - 폐쇄망 전용 클라이언트 사이드 SPA",
+  "description": "수압시험 BEP(손익분기점) 관리 웹앱 - 폐쇄망 전용. NAS의 SQLite 파일에 저장.",
   "scripts": {
     "dev": "vite",
+    "dev:server": "node --watch --env-file=.env server/index.mjs",
     "build": "tsc -b && vite build",
+    "server": "node --env-file=.env server/index.mjs",
+    "start": "npm run build && node --env-file=.env server/index.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "idb": "^8.0.0",
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7"

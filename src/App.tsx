@@ -18,7 +18,7 @@ function PrintTitle() {
 }
 
 function AppBody() {
-  const { ready } = useAppData();
+  const { ready, loadError } = useAppData();
   if (!ready) {
     return <div className="loading">데이터를 불러오는 중…</div>;
   }
@@ -26,6 +26,7 @@ function AppBody() {
     <>
       <AppHeader />
       <PrintTitle />
+      {loadError && <div className="load-error no-print">{loadError}</div>}
       <main className="container">
         <MonthSelector />
         <AssumptionsNotice />
