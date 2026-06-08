@@ -35,6 +35,30 @@ npm run server     # 서버 실행 → 브라우저에서 http://localhost:3000 
 
 `npm start` 는 빌드와 서버 실행을 한 번에 합니다.
 
+## 윈도우 실행 파일(.exe) 만들기 — 한 번만
+
+Node 설치 없이 더블클릭으로 켜지는 `bep.exe` 를 만듭니다. **반드시 윈도우 PC에서**
+빌드해야 합니다(네이티브 모듈이 OS 전용이라 다른 OS에서 만든 exe 는 윈도우에서 동작하지 않음).
+
+```bash
+npm install          # 처음 한 번 (인터넷 필요)
+npm run package      # 빌드 + exe 생성 → release\ 폴더
+```
+
+`release\` 폴더가 만들어지며 다음이 들어갑니다. **이 폴더를 통째로** 사용·배포하세요.
+
+```
+release\
+  bep.exe              실행 파일 (Node 내장)
+  better_sqlite3.node  DB 엔진 (exe 옆에 반드시 함께)
+  dist\                화면 파일
+  .env                 ← DB_PATH 를 NAS 경로로 수정
+  사용법.txt
+```
+
+사용: `.env` 의 `DB_PATH` 를 NAS 경로로 바꾼 뒤 **`bep.exe` 더블클릭** → 브라우저가
+자동으로 열립니다. 검은 창을 닫으면 종료됩니다. (Node 설치 불필요)
+
 ## 개발
 
 ```bash

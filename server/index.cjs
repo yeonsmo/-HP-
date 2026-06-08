@@ -1,47 +1,93 @@
-// 수압시험 BEP 관리 - 중계 서버
+// 수압시험 BEP 관리 - 중계 서버 (CommonJS, exe 패키징 호환)
 //
 // 브라우저(프런트엔드)와 NAS의 SQLite 파일 사이를 중계한다.
 // 단일 프로세스가 SQLite 파일을 소유하므로 동시 쓰기 충돌이 없다.
 // 외부 네트워크 호출은 전혀 하지 않으며, NAS의 지정 파일에만 읽고 쓴다.
 //
-// 환경변수(.env):
-//   DB_PATH : SQLite 파일 전체 경로 (예: /mnt/nas/bep/bep.db, \\NAS\bep\bep.db)
+// 설정(.env, exe와 같은 폴더):
+//   DB_PATH : SQLite 파일 전체 경로 (예: Z:\bep\bep.db, \\NAS\bep\bep.db)
 //   PORT    : 서버 포트 (기본 3000)
 
-import express from 'express';
-import Database from 'better-sqlite3';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+const express = require('express');
+const Database = require('better-sqlite3');
+const fs = require('node:fs');
+const path = require('node:path');
+const { exec, execSync } = require('node:child_process');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// pkg 로 만든 exe 로 실행되면 process.pkg 가 설정된다.
+const isPackaged = !!process.pkg;
+// 설정/정적파일의 기준 폴더: exe 실행 시 exe 옆 폴더, 개발 시 프로젝트 루트.
+const baseDir = isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+
+// 콘솔창이 바로 닫히지 않도록(더블클릭 실행 대비) 종료 전 대기.
+function holdOpen() {
+  if (!isPackaged) return;
+  try {
+    execSync('pause', { stdio: 'inherit', shell: 'cmd.exe' });
+  } catch {
+    /* pause 불가 환경이면 무시 */
+  }
+}
+
+function fatal(lines) {
+  for (const l of [].concat(lines)) console.error(l);
+  holdOpen();
+  process.exit(1);
+}
+
+// ----- .env 직접 읽기 (--env-file 플래그 없이도, exe 더블클릭에서도 동작) -----
+function loadDotEnv(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return; // .env 없으면 통과 (이미 환경변수로 줬을 수 있음)
+  }
+  for (const raw of text.split(/\r?\n/)) {
+    const m = raw.match(/^\s*([A-Za-z_][\w.-]*)\s*=\s*(.*)\s*$/);
+    if (!m) continue;
+    let val = m[2];
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (process.env[m[1]] === undefined) process.env[m[1]] = val;
+  }
+}
+
+loadDotEnv(path.join(baseDir, '.env'));
 
 const DB_PATH = process.env.DB_PATH;
 const PORT = Number(process.env.PORT || 3000);
 
 if (!DB_PATH) {
-  console.error('[오류] DB_PATH 환경변수가 없습니다. .env 파일에 DB_PATH 를 지정하세요.');
-  console.error('       예) DB_PATH=/mnt/nas/bep/bep.db');
-  process.exit(1);
+  fatal([
+    '[오류] DB_PATH 설정이 없습니다.',
+    `       이 파일과 같은 폴더의 .env 파일에 DB_PATH 를 지정하세요: ${baseDir}`,
+    '       예) DB_PATH=Z:\\bep\\bep.db',
+  ]);
 }
 
-// DB 파일이 들어갈 폴더가 없으면 생성 (NAS 마운트 경로 포함)
+// DB 파일이 들어갈 폴더가 없으면 생성 (NAS 경로 포함)
 try {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 } catch (e) {
-  console.error(`[오류] DB 폴더를 만들 수 없습니다: ${path.dirname(DB_PATH)}`);
-  console.error('       NAS 경로가 마운트되어 있고 쓰기 권한이 있는지 확인하세요.');
-  console.error(String(e));
-  process.exit(1);
+  fatal([
+    `[오류] DB 폴더를 만들 수 없습니다: ${path.dirname(DB_PATH)}`,
+    '       NAS 경로가 연결되어 있고 쓰기 권한이 있는지 확인하세요.',
+    String(e),
+  ]);
 }
 
 let db;
 try {
-  db = new Database(DB_PATH);
+  // exe 로 묶인 경우 네이티브 바인딩(.node)은 exe 옆 파일에서 직접 읽는다.
+  // (pkg 가상 파일시스템에서는 .node 를 로드할 수 없기 때문)
+  const dbOptions = isPackaged
+    ? { nativeBinding: path.join(baseDir, 'better_sqlite3.node') }
+    : undefined;
+  db = new Database(DB_PATH, dbOptions);
 } catch (e) {
-  console.error(`[오류] SQLite 파일을 열 수 없습니다: ${DB_PATH}`);
-  console.error(String(e));
-  process.exit(1);
+  fatal([`[오류] SQLite 파일을 열 수 없습니다: ${DB_PATH}`, String(e)]);
 }
 
 // 네트워크 공유(NAS) 안전 설정:
@@ -140,17 +186,37 @@ app.post('/api/restore', (req, res) => {
   res.json({ ok: true });
 });
 
-// 빌드된 프런트엔드 정적 서빙
-const distDir = path.join(__dirname, '..', 'dist');
+// 빌드된 프런트엔드 정적 서빙 (exe 옆 dist 폴더)
+const distDir = path.join(baseDir, 'dist');
 app.use(express.static(distDir));
 // SPA 폴백 (API 외 경로는 index.html)
 app.get(/^(?!\/api\/).*/, (_req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log('수압시험 BEP 관리 서버 시작');
-  console.log(`  주소     : http://localhost:${PORT}`);
+function openBrowser(url) {
+  const cmd =
+    process.platform === 'win32' ? `start "" "${url}"` :
+    process.platform === 'darwin' ? `open "${url}"` :
+    `xdg-open "${url}"`;
+  exec(cmd, () => { /* 브라우저 자동 열기 실패해도 무시 */ });
+}
+
+const server = app.listen(PORT, () => {
+  const url = `http://localhost:${PORT}`;
+  console.log('======================================');
+  console.log(' 수압시험 BEP 관리 서버가 켜졌습니다');
+  console.log(`  주소     : ${url}`);
   console.log(`  DB 파일  : ${DB_PATH}`);
-  console.log('  종료     : Ctrl + C');
+  console.log('  종료     : 이 창을 닫거나 Ctrl + C');
+  console.log('======================================');
+  if (isPackaged) openBrowser(url); // 더블클릭 실행 시 브라우저 자동 열기
+});
+
+server.on('error', (e) => {
+  if (e && e.code === 'EADDRINUSE') {
+    fatal([`[오류] 포트 ${PORT} 가 이미 사용 중입니다.`, '       이미 켜져 있거나, .env 의 PORT 를 바꿔보세요.']);
+  } else {
+    fatal(['[오류] 서버를 시작할 수 없습니다.', String(e)]);
+  }
 });
