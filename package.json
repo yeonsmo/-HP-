@@ -1,0 +1,35 @@
+{
+  "name": "hp-bep-management",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "수압시험 BEP(손익분기점) 관리 웹앱 - 폐쇄망 전용. NAS의 SQLite 파일에 저장.",
+  "bin": "server/index.cjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node --watch server/index.cjs",
+    "build": "tsc -b && vite build",
+    "server": "node server/index.cjs",
+    "start": "npm run build && node server/index.cjs",
+    "package": "npm run build && pkg server/index.cjs --targets node22-win-x64 --output release/bep.exe && node scripts/make-release.cjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@yao-pkg/pkg": "^6.3.0",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.4",
+    "vitest": "^2.0.5"
+  }
+}

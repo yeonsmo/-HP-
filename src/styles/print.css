@@ -1,0 +1,97 @@
+/* 인쇄/PDF 전용 스타일. 한글이 깨지지 않도록 폰트는 그대로 상속한다.
+   window.print 기반으로 발행한다. */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11px;
+  }
+
+  /* 색상 강제 출력 (차트 선 색 유지) */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 화면 전용 요소 숨김 */
+  .no-print,
+  .app-header,
+  .app-footer {
+    display: none !important;
+  }
+
+  /* 인쇄 전용 요소 표시 */
+  .print-only {
+    display: block !important;
+  }
+  .print-title {
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  .container {
+    max-width: none;
+    padding: 0;
+    gap: 10px;
+  }
+
+  .card {
+    border: 1px solid #999;
+    border-radius: 0;
+    padding: 10px;
+    break-inside: avoid;
+  }
+
+  /* 표/카드/통계 블록 잘림 방지 */
+  table.grid,
+  .client-card,
+  .stat-card,
+  .chart-block,
+  .subsection,
+  .fixed-total {
+    break-inside: avoid;
+  }
+
+  /* 산출 영역은 새 페이지에서 시작 */
+  .output-section {
+    break-before: page;
+  }
+
+  /* 입력 요소를 인쇄 시 테두리 없는 텍스트처럼 표시 */
+  input,
+  select {
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+    color: #000 !important;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .num-suffix {
+    color: #000;
+  }
+
+  /* 차트는 고정 크기로 렌더하여 SVG 축소 방지 */
+  .chart-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .chart-area {
+    width: 100%;
+    height: 220px;
+  }
+
+  .chip {
+    border: 1px solid #ccc;
+    background: #fff !important;
+  }
+}
