@@ -16,7 +16,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
-    throw new Error(`서버 요청 실패 (${res.status}): ${path}`);
+    // 서버가 보낸 사유({ error })가 있으면 함께 표시한다.
+    let detail = '';
+    try {
+      const body = await res.json();
+      if (body && typeof body.error === 'string') detail = `: ${body.error}`;
+    } catch {
+      /* 본문이 JSON 이 아니면 무시 */
+    }
+    throw new Error(`서버 요청 실패 (${res.status})${detail}`);
   }
   return (await res.json()) as T;
 }
@@ -28,8 +36,12 @@ export async function getState(): Promise<AppState> {
 
 // ----- months -----
 
-export async function putMonth(data: MonthData): Promise<void> {
-  await api('/month', { method: 'PUT', body: JSON.stringify(data) });
+export async function putMonth(
+  data: MonthData,
+  opts?: { keepalive?: boolean },
+): Promise<void> {
+  // keepalive: 페이지 종료 중에도 요청이 취소되지 않도록 (탭 닫을 때 마지막 저장 보존)
+  await api('/month', { method: 'PUT', body: JSON.stringify(data), keepalive: opts?.keepalive });
 }
 
 /** 명시적 월 삭제 (사용자 확인 후에만 호출) */

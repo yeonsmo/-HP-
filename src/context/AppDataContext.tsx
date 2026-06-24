@@ -27,6 +27,8 @@ import {
 interface AppDataValue {
   ready: boolean;
   loadError: string | null;
+  /** 마지막 저장(쓰기) 실패 메시지. null 이면 정상. */
+  saveError: string | null;
   selectedMonth: MonthKey;
   basis: Basis;
   monthData: MonthData;
@@ -50,7 +52,21 @@ const SAVE_DEBOUNCE_MS = 400;
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonthState] = useState<MonthKey>(currentMonthKey());
+
+  // 모든 쓰기(저장) 작업을 감싸 실패 시 배너로 알린다. 성공하면 배너를 지운다.
+  const tracked = useCallback((p: Promise<unknown>) => {
+    p.then(
+      () => setSaveError(null),
+      (e: unknown) =>
+        setSaveError(
+          `저장에 실패했습니다. 입력이 보존되지 않았을 수 있습니다. 서버/NAS 연결을 확인하세요. (${
+            e instanceof Error ? e.message : String(e)
+          })`,
+        ),
+    );
+  }, []);
   const [basis, setBasis] = useState<Basis>('cumulative');
   const [months, setMonths] = useState<Record<MonthKey, MonthData>>({});
   const [variableRecords, setVariableRecords] = useState<VariableRecord[]>([]);
@@ -58,7 +74,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const pendingSaves = useRef<Map<MonthKey, MonthData>>(new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const flushSaves = useCallback(() => {
+  const flushSaves = useCallback((keepalive = false) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
@@ -66,9 +82,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const pending = pendingSaves.current;
     pendingSaves.current = new Map();
     pending.forEach((md) => {
-      void putMonth(md);
+      tracked(putMonth(md, { keepalive }));
     });
-  }, []);
+  }, [tracked]);
 
   const scheduleSave = useCallback(
     (md: MonthData) => {
@@ -93,8 +109,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .then(() => setLoadError(null))
       .catch(() => setLoadError('서버에 연결할 수 없습니다. 서버(npm run server)가 실행 중인지, NAS 경로가 연결되어 있는지 확인하세요.'))
       .finally(() => setReady(true));
-    // 페이지 종료 전 보류 중인 저장 flush
-    const onBeforeUnload = () => flushSaves();
+    // 페이지 종료 전 보류 중인 저장 flush (keepalive 로 전송 취소 방지)
+    const onBeforeUnload = () => flushSaves(true);
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [loadAll, flushSaves]);
@@ -110,9 +126,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     (m: MonthKey) => {
       flushSaves(); // 월 전환 전 보류 저장 flush (stale write 방지)
       setSelectedMonthState(m);
-      void setLastMonth(m);
+      tracked(setLastMonth(m));
     },
-    [flushSaves],
+    [flushSaves, tracked],
   );
 
   const updateMonthData = useCallback(
@@ -133,13 +149,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const next = idx >= 0 ? prev.map((r) => (r.id === rec.id ? rec : r)) : [...prev, rec];
       return next;
     });
-    void dbPutVar(rec);
-  }, []);
+    tracked(dbPutVar(rec));
+  }, [tracked]);
 
   const removeVariableRecord = useCallback((id: string) => {
     setVariableRecords((prev) => prev.filter((r) => r.id !== id));
-    void dbDeleteVar(id);
-  }, []);
+    tracked(dbDeleteVar(id));
+  }, [tracked]);
 
   const reloadAll = useCallback(async () => {
     await loadAll();
@@ -148,6 +164,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const value: AppDataValue = {
     ready,
     loadError,
+    saveError,
     selectedMonth,
     basis,
     monthData,

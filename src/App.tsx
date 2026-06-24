@@ -18,7 +18,7 @@ function PrintTitle() {
 }
 
 function AppBody() {
-  const { ready, loadError } = useAppData();
+  const { ready, loadError, saveError } = useAppData();
   if (!ready) {
     return <div className="loading">데이터를 불러오는 중…</div>;
   }
@@ -27,6 +27,7 @@ function AppBody() {
       <AppHeader />
       <PrintTitle />
       {loadError && <div className="load-error no-print">{loadError}</div>}
+      {saveError && <div className="load-error no-print">{saveError}</div>}
       <main className="container">
         <MonthSelector />
         <AssumptionsNotice />
@@ -36,7 +37,7 @@ function AppBody() {
         <OutputSection />
       </main>
       <footer className="app-footer no-print">
-        폐쇄망 전용 · 외부 네트워크 통신 없음 · 데이터는 브라우저(IndexedDB)에 저장됩니다.
+        폐쇄망 전용 · 외부 네트워크 통신 없음 · 데이터는 NAS의 SQLite 파일에 저장됩니다.
       </footer>
     </>
   );
