@@ -8,6 +8,15 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const release = path.join(root, 'release');
 
+// 윈도우용 exe(node22-win-x64)에는 윈도우용 better_sqlite3.node 가 필요하다.
+// 다른 OS 에서 빌드하면 그 OS 의 바인딩이 복사되어 실행 시 깨진다 → 미리 막는다.
+if (process.platform !== 'win32') {
+  console.error('[오류] 윈도우용 exe 는 반드시 윈도우 PC 에서 빌드해야 합니다.');
+  console.error(`       현재 OS: ${process.platform} (필요: win32)`);
+  console.error('       윈도우에서 "npm install" 후 "npm run package" 를 실행하세요.');
+  process.exit(1);
+}
+
 fs.mkdirSync(release, { recursive: true });
 
 // 1) 프런트엔드 빌드 결과 복사
