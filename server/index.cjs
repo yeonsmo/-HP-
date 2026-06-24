@@ -189,8 +189,14 @@ app.post('/api/restore', (req, res) => {
 // 빌드된 프런트엔드 정적 서빙 (exe 옆 dist 폴더)
 const distDir = path.join(baseDir, 'dist');
 app.use(express.static(distDir));
-// SPA 폴백 (API 외 경로는 index.html)
-app.get(/^(?!\/api\/).*/, (_req, res) => {
+// SPA 폴백: 화면 경로(확장자 없음)만 index.html 로 응답한다.
+// 확장자가 있는데 위 static 에서 못 찾은 요청(예: 옛 캐시의 /assets/old.js)은
+// HTML 대신 정상 404 를 반환해 "Unexpected token <" 오류를 막는다.
+app.get(/^(?!\/api\/).*/, (req, res) => {
+  if (path.extname(req.path)) {
+    res.status(404).send('Not found');
+    return;
+  }
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
