@@ -12,11 +12,15 @@
     "server": "node server/index.cjs",
     "start": "npm run build && node server/index.cjs",
     "package": "npm run build && pkg server/index.cjs --targets node22-win-x64 --output release/bep.exe && node scripts/make-release.cjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build --no-bundle",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
     "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
     "react": "^18.3.1",
@@ -24,6 +28,7 @@
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.3",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

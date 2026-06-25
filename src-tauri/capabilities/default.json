@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "기본 권한: 메인 창의 코어 IPC 사용",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
