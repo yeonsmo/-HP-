@@ -59,6 +59,35 @@ release\
 사용: `.env` 의 `DB_PATH` 를 NAS 경로로 바꾼 뒤 **`bep.exe` 더블클릭** → 브라우저가
 자동으로 열립니다. 검은 창을 닫으면 종료됩니다. (Node 설치 불필요)
 
+## 독립 데스크톱 앱(Tauri) 만들기 — 권장
+
+브라우저 탭이 아니라 **자체 창을 가진 진짜 데스크톱 앱**(초경량)으로 빌드합니다.
+데이터는 동일하게 NAS 의 SQLite 파일에 저장됩니다. **반드시 윈도우 PC에서** 빌드하세요.
+
+사전 준비(윈도우, 한 번):
+- [Rust](https://rustup.rs) 설치
+- Microsoft C++ Build Tools (Visual Studio Build Tools)
+- WebView2 런타임 — Windows 10/11 에는 기본 포함(엣지). 없으면 MS 에서 설치.
+
+빌드:
+```bash
+npm install
+npm run tauri:build      # 프런트엔드 빌드 + 네이티브 앱 컴파일(--no-bundle)
+```
+
+포터블 배포: 빌드 후 아래 실행 파일을 폴더에 두고 `.env` 를 함께 둡니다.
+```
+src-tauri\target\release\bep.exe   ← 이 파일을 원하는 폴더로 복사(이름 변경 가능)
+.env                               ← DB_PATH 를 NAS 경로로 (없으면 exe 옆 data\bep.db 사용)
+```
+`bep.exe` 더블클릭 → 단독 창으로 앱이 열립니다. (별도 콘솔창·브라우저 불필요)
+
+개발: `npm run tauri:dev` (Vite + Rust 백엔드를 함께 띄움).
+
+> 참고: 프런트엔드(`src/lib/db/database.ts`)는 실행 환경을 감지해, Tauri 앱이면
+> Rust 백엔드를 IPC 로 호출하고, 일반 웹/서버(exe)면 `/api` 를 호출합니다. 두 배포
+> 방식(Tauri 앱 / Node 서버)이 같은 코드로 모두 동작합니다.
+
 ## 개발
 
 ```bash
