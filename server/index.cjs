@@ -35,26 +35,13 @@ function fatal(lines) {
   process.exit(1);
 }
 
-// ----- .env 직접 읽기 (--env-file 플래그 없이도, exe 더블클릭에서도 동작) -----
-function loadDotEnv(file) {
-  let text;
-  try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch {
-    return; // .env 없으면 통과 (이미 환경변수로 줬을 수 있음)
-  }
-  for (const raw of text.split(/\r?\n/)) {
-    const m = raw.match(/^\s*([A-Za-z_][\w.-]*)\s*=\s*(.*)\s*$/);
-    if (!m) continue;
-    let val = m[2];
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    if (process.env[m[1]] === undefined) process.env[m[1]] = val;
-  }
+// ----- .env 로드 (--env-file 플래그 없이도, exe 더블클릭에서도 동작) -----
+// Node 내장 기능 사용. 이미 설정된 환경변수는 덮어쓰지 않으며, 파일이 없으면 통과한다.
+try {
+  process.loadEnvFile(path.join(baseDir, '.env'));
+} catch {
+  /* .env 없으면 통과 (이미 환경변수로 줬을 수 있음) */
 }
-
-loadDotEnv(path.join(baseDir, '.env'));
 
 const DB_PATH = process.env.DB_PATH;
 const PORT = Number(process.env.PORT || 3000);
@@ -103,7 +90,6 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS variable_records (
     id    TEXT PRIMARY KEY,
-    month TEXT,
     data  TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS meta (
@@ -118,7 +104,7 @@ const q = {
   putMonth: db.prepare('INSERT INTO months(month, data) VALUES(@month, @data) ON CONFLICT(month) DO UPDATE SET data=@data'),
   delMonth: db.prepare('DELETE FROM months WHERE month=?'),
   allVars: db.prepare('SELECT data FROM variable_records'),
-  putVar: db.prepare('INSERT INTO variable_records(id, month, data) VALUES(@id, @month, @data) ON CONFLICT(id) DO UPDATE SET month=@month, data=@data'),
+  putVar: db.prepare('INSERT INTO variable_records(id, data) VALUES(@id, @data) ON CONFLICT(id) DO UPDATE SET data=@data'),
   delVar: db.prepare('DELETE FROM variable_records WHERE id=?'),
   getMeta: db.prepare('SELECT value FROM meta WHERE key=?'),
   putMeta: db.prepare('INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'),
@@ -130,8 +116,12 @@ const restoreTx = db.transaction((months, records) => {
   q.clearMonths.run();
   q.clearVars.run();
   for (const m of months) q.putMonth.run({ month: m.month, data: JSON.stringify(m) });
-  for (const r of records) q.putVar.run({ id: r.id, month: r.month, data: JSON.stringify(r) });
+  for (const r of records) q.putVar.run({ id: r.id, data: JSON.stringify(r) });
 });
+
+// 월 키(YYYY-MM) 형식 검증 — 저장 경계에서 잘못된 데이터를 막는다.
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const isMonthKey = (v) => typeof v === 'string' && MONTH_RE.test(v);
 
 // ----- 앱 -----
 const app = express();
@@ -147,7 +137,7 @@ app.get('/api/state', (_req, res) => {
 
 app.put('/api/month', (req, res) => {
   const m = req.body;
-  if (!m || typeof m.month !== 'string') return res.status(400).json({ error: 'invalid month' });
+  if (!m || !isMonthKey(m.month)) return res.status(400).json({ error: '월(YYYY-MM) 형식이 올바르지 않습니다.' });
   q.putMonth.run({ month: m.month, data: JSON.stringify(m) });
   res.json({ ok: true });
 });
@@ -159,8 +149,10 @@ app.delete('/api/month/:month', (req, res) => {
 
 app.put('/api/variable', (req, res) => {
   const r = req.body;
-  if (!r || typeof r.id !== 'string') return res.status(400).json({ error: 'invalid record' });
-  q.putVar.run({ id: r.id, month: r.month ?? null, data: JSON.stringify(r) });
+  if (!r || typeof r.id !== 'string' || !isMonthKey(r.month)) {
+    return res.status(400).json({ error: '변동비 기록의 id/월(YYYY-MM)이 올바르지 않습니다.' });
+  }
+  q.putVar.run({ id: r.id, data: JSON.stringify(r) });
   res.json({ ok: true });
 });
 
@@ -180,7 +172,18 @@ app.put('/api/meta/last-month', (req, res) => {
 app.post('/api/restore', (req, res) => {
   const { months, variableRecords } = req.body ?? {};
   if (!Array.isArray(months) || !Array.isArray(variableRecords)) {
-    return res.status(400).json({ error: 'invalid backup' });
+    return res.status(400).json({ error: '백업 구조가 올바르지 않습니다(months/variableRecords 배열 필요).' });
+  }
+  // 기존 데이터를 지우기 전에 전체를 먼저 검증한다(잘못된 항목이면 데이터를 건드리지 않음).
+  for (const m of months) {
+    if (!m || typeof m !== 'object' || !isMonthKey(m.month)) {
+      return res.status(400).json({ error: '월(YYYY-MM) 키가 올바르지 않은 항목이 있습니다.' });
+    }
+  }
+  for (const r of variableRecords) {
+    if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !isMonthKey(r.month)) {
+      return res.status(400).json({ error: '변동비 기록의 형식/월(YYYY-MM)이 올바르지 않은 항목이 있습니다.' });
+    }
   }
   restoreTx(months, variableRecords);
   res.json({ ok: true });
@@ -189,8 +192,14 @@ app.post('/api/restore', (req, res) => {
 // 빌드된 프런트엔드 정적 서빙 (exe 옆 dist 폴더)
 const distDir = path.join(baseDir, 'dist');
 app.use(express.static(distDir));
-// SPA 폴백 (API 외 경로는 index.html)
-app.get(/^(?!\/api\/).*/, (_req, res) => {
+// SPA 폴백: 화면 경로(확장자 없음)만 index.html 로 응답한다.
+// 확장자가 있는데 위 static 에서 못 찾은 요청(예: 옛 캐시의 /assets/old.js)은
+// HTML 대신 정상 404 를 반환해 "Unexpected token <" 오류를 막는다.
+app.get(/^(?!\/api\/).*/, (req, res) => {
+  if (path.extname(req.path)) {
+    res.status(404).send('Not found');
+    return;
+  }
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
