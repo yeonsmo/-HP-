@@ -1,0 +1,70 @@
+name: Build Windows bep.exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/build-windows.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      # better-sqlite3 is server-only (not used by the Tauri app, which uses
+      # rusqlite). Skip native build scripts to avoid unneeded compilation,
+      # then restore the tauri-cli native binary that --ignore-scripts omits.
+      - name: Install JS deps
+        run: npm install --ignore-scripts
+
+      - name: Ensure tauri-cli native binary
+        run: npm install @tauri-apps/cli-win32-x64-msvc --no-save --ignore-scripts
+
+      - name: Build (frontend + Tauri, no bundle)
+        run: npm run tauri:build
+
+      - name: Locate built exe
+        id: find
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path src-tauri/target/release -Filter *.exe -File |
+                 Where-Object { $_.Name -notlike "*build-script*" } |
+                 Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $exe) { throw "No exe found in release dir" }
+          "Found: $($exe.FullName) ($([math]::Round($exe.Length/1MB,1)) MB)"
+          # Normalize to bep.exe for the artifact
+          Copy-Item $exe.FullName -Destination "$($exe.DirectoryName)\bep.exe" -Force
+          "path=$($exe.DirectoryName)\bep.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Upload bep.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: bep-exe
+          path: ${{ steps.find.outputs.path }}
+          if-no-files-found: error
