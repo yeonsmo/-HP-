@@ -14,7 +14,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::State;
 
-struct Db(Mutex<Connection>);
+/// DB 연결 상태. NAS 파일을 못 열면 conn 이 None 이고 err 에 사유가 담긴다.
+/// 이 경우 모든 데이터 작업은 명확한 오류를 반환해 화면에 알린다(조용한 유실 방지).
+struct Db {
+    conn: Mutex<Option<Connection>>,
+    err: Option<String>,
+}
 
 /// exe 와 같은 폴더의 .env 에서 DB_PATH 를 읽는다(포터블).
 /// 지정이 없으면 exe 옆 data/bep.db 를 사용한다.
@@ -201,47 +206,57 @@ fn restore_all(conn: &mut Connection, months: &[Value], records: &[Value]) -> Re
 
 // ----- Tauri 커맨드 (프런트엔드 invoke 대상) -----
 
+/// 잠긴 연결을 실행한다. DB 가 열리지 않았으면(NAS 실패 등) 명확한 오류를 반환한다.
+fn with_conn<T>(db: &Db, f: impl FnOnce(&mut Connection) -> Result<T, String>) -> Result<T, String> {
+    let mut guard = db.conn.lock().map_err(|_| "DB 잠금 실패".to_string())?;
+    match guard.as_mut() {
+        Some(conn) => f(conn),
+        None => Err(db
+            .err
+            .clone()
+            .unwrap_or_else(|| "저장 위치(DB)를 열 수 없습니다.".to_string())),
+    }
+}
+
 #[tauri::command]
 fn get_state(db: State<Db>) -> Result<Value, String> {
-    let conn = db.0.lock().map_err(|_| "DB 잠금 실패".to_string())?;
-    state_json(&conn)
+    with_conn(&db, |conn| state_json(conn))
 }
 
 #[tauri::command]
 fn put_month(db: State<Db>, data: Value) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|_| "DB 잠금 실패".to_string())?;
-    upsert_month(&conn, &data)
+    with_conn(&db, |conn| upsert_month(conn, &data))
 }
 
 #[tauri::command]
 fn delete_month(db: State<Db>, month: String) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|_| "DB 잠금 실패".to_string())?;
-    conn.execute("DELETE FROM months WHERE month=?1", rusqlite::params![month])
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    with_conn(&db, |conn| {
+        conn.execute("DELETE FROM months WHERE month=?1", rusqlite::params![month])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 #[tauri::command]
 fn put_variable(db: State<Db>, data: Value) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|_| "DB 잠금 실패".to_string())?;
-    upsert_variable(&conn, &data)
+    with_conn(&db, |conn| upsert_variable(conn, &data))
 }
 
 #[tauri::command]
 fn delete_variable(db: State<Db>, id: String) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|_| "DB 잠금 실패".to_string())?;
-    conn.execute(
-        "DELETE FROM variable_records WHERE id=?1",
-        rusqlite::params![id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    with_conn(&db, |conn| {
+        conn.execute(
+            "DELETE FROM variable_records WHERE id=?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 #[tauri::command]
 fn set_last_month(db: State<Db>, month: String) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|_| "DB 잠금 실패".to_string())?;
-    set_last_month_row(&conn, &month)
+    with_conn(&db, |conn| set_last_month_row(conn, &month))
 }
 
 #[tauri::command]
@@ -251,21 +266,31 @@ fn restore(db: State<Db>, months: Value, variable_records: Value) -> Result<(), 
         .as_array()
         .ok_or("백업 구조가 올바르지 않습니다.")?
         .clone();
-    let mut conn = db.0.lock().map_err(|_| "DB 잠금 실패".to_string())?;
-    restore_all(&mut conn, &months, &records)
+    with_conn(&db, |conn| restore_all(conn, &months, &records))
 }
 
 fn main() {
     let path = resolve_db_path();
-    let conn = open_db(&path).unwrap_or_else(|e| {
-        // 파일을 못 열어도 앱은 띄운다(메모리 DB). 사용자는 빈 화면 + 저장 실패로 인지.
-        eprintln!("[오류] {e} (경로: {})", path.display());
-        let c = Connection::open_in_memory().expect("메모리 DB 생성 실패");
-        init_schema(&c).expect("스키마 생성 실패");
-        c
-    });
+    // NAS 파일을 못 열면 메모리로 조용히 폴백하지 않는다(데이터 유실 방지).
+    // conn=None + 오류 메시지를 들고 앱을 띄우면, 화면이 "연결 실패" 배너를 표시한다.
+    let (conn, err) = match open_db(&path) {
+        Ok(c) => (Some(c), None),
+        Err(e) => {
+            eprintln!("[오류] {e} (경로: {})", path.display());
+            (
+                None,
+                Some(format!(
+                    "저장 위치(DB)를 열 수 없습니다. NAS 연결과 경로를 확인하세요. (경로: {}) — {e}",
+                    path.display()
+                )),
+            )
+        }
+    };
     tauri::Builder::default()
-        .manage(Db(Mutex::new(conn)))
+        .manage(Db {
+            conn: Mutex::new(conn),
+            err,
+        })
         .invoke_handler(tauri::generate_handler![
             get_state,
             put_month,
