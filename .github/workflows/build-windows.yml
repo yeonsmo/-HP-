@@ -58,9 +58,10 @@ jobs:
                  Sort-Object Length -Descending | Select-Object -First 1
           if (-not $exe) { throw "No exe found in release dir" }
           "Found: $($exe.FullName) ($([math]::Round($exe.Length/1MB,1)) MB)"
-          # Normalize to bep.exe for the artifact
-          Copy-Item $exe.FullName -Destination "$($exe.DirectoryName)\bep.exe" -Force
-          "path=$($exe.DirectoryName)\bep.exe" >> $env:GITHUB_OUTPUT
+          # Normalize to bep.exe for the artifact (skip if already named bep.exe)
+          $dest = Join-Path $exe.DirectoryName "bep.exe"
+          if ($exe.FullName -ne $dest) { Copy-Item $exe.FullName -Destination $dest -Force }
+          "path=$dest" >> $env:GITHUB_OUTPUT
 
       - name: Upload bep.exe
         uses: actions/upload-artifact@v4
